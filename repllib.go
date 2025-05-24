@@ -59,7 +59,6 @@ type Repl struct {
 	historyIdx  int
 	promptCount int // Track the prompt number like IPython
 	quitting    bool
-	mw          []EvalMiddleware
 }
 
 // Bubble Tea Model implementation
@@ -81,20 +80,25 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
-			r.quitting = true
-			return r, tea.Quit
-
 		case tea.KeyEnter:
 			input := strings.TrimSpace(r.textInput.Value())
 
-			for _, mw := range r.mw {
-				newInput, mwCmd := mw(input)
-				if mwCmd != nil {
-					return r, mwCmd
-				}
+			nextPrompt := func() {
+				// Increment prompt counter and reset input
+				r.promptCount++
+				r.textInput.SetValue("")
+				r.textInput.Prompt = r.handler.Prompt(r.promptCount)
+				r.historyIdx = -1
+			}
 
-				input = newInput
+			switch input {
+			case "exit", "quit", ":exit", ":quit":
+				r.quitting = true
+				nextPrompt()
+				return r, tea.Quit // Exit the REPL
+			case "clear":
+				nextPrompt()
+				return r, tea.ClearScreen // Clear the screen
 			}
 
 			if input != "" {
@@ -105,14 +109,10 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					result += "\n"
 				}
 
+				nextPrompt()
+
 				// Add to history
 				_ = r.history.Push(input) // TO-DO: log error
-
-				// Increment prompt counter and reset input
-				r.promptCount++
-				r.textInput.SetValue("")
-				r.textInput.Prompt = r.handler.Prompt(r.promptCount)
-				r.historyIdx = -1
 
 				// Use tea.Println to display the result, we also need to patch the result with the
 				// prompt to give the illusion of interactivity.
@@ -179,7 +179,7 @@ func (r *Repl) View() string {
 
 	// Help text
 	view.WriteString("\n\n")
-	view.WriteString(helpStyle.Render("↑/↓: history • tab: complete • ctrl+c/esc: quit"))
+	view.WriteString(helpStyle.Render("↑/↓: history • tab: complete • 'exit': quit"))
 
 	return view.String()
 }

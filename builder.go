@@ -11,7 +11,6 @@ type ReplBuilder struct {
 	promptFunc PromptFunc
 	tabFunc    TabFunc
 	history    ReplHistory
-	mw         []EvalMiddleware
 }
 
 // New creates a new REPL builder - requires an evaluation function
@@ -37,9 +36,6 @@ func New(evalFunc EvalFunc) *ReplBuilder {
 			}
 			return buffer
 		},
-		mw: []EvalMiddleware{
-			WithExitMiddleware(),
-		},
 	}
 }
 
@@ -54,7 +50,6 @@ func (b *ReplBuilder) Build() *Repl {
 	return &Repl{
 		handler: handler,
 		history: b.history,
-		mw:      b.mw,
 	}
 }
 
@@ -71,10 +66,5 @@ func (b *ReplBuilder) WithTab(tabFunc TabFunc) *ReplBuilder {
 
 func (b *ReplBuilder) WithHistory(history ReplHistory) *ReplBuilder {
 	b.history = history
-	return b
-}
-
-func (b *ReplBuilder) WithMiddleware(mw ...EvalMiddleware) *ReplBuilder {
-	b.mw = append(b.mw, mw...)
 	return b
 }
