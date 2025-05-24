@@ -19,6 +19,32 @@ var (
 // EvalFunc is the required evaluation function
 type EvalFunc func(buffer string) string
 
+// EvalMiddleware is an optional middleware function that can modify the evaluation process.
+// or return an actionable message with tea.Cmd.
+//
+// When tea.Cmd is not nil, the REPL will not print the result directly and instead delegate
+// the output to the command.
+type EvalMiddleware func(buffer string) (string, tea.Cmd)
+
+func WithExitMiddleware() EvalMiddleware {
+	return func(buffer string) (string, tea.Cmd) {
+		kw := [...]string{
+			"exit",
+			"quit",
+			":exit",
+			":quit",
+		}
+
+		for _, kw := range kw {
+			if strings.EqualFold(strings.TrimSpace(buffer), kw) {
+				return "Exiting REPL...", tea.Quit
+			}
+		}
+
+		return buffer, nil // No exit command found
+	}
+}
+
 // Optional function types for builder
 type (
 	PromptFunc func(count int) string
@@ -30,10 +56,10 @@ type Repl struct {
 	handler     Handler
 	history     ReplHistory
 	textInput   textinput.Model
-	output      []string
 	historyIdx  int
 	promptCount int // Track the prompt number like IPython
 	quitting    bool
+	mw          []EvalMiddleware
 }
 
 // Bubble Tea Model implementation
@@ -61,18 +87,22 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter:
 			input := strings.TrimSpace(r.textInput.Value())
+
+			for _, mw := range r.mw {
+				newInput, mwCmd := mw(input)
+				if mwCmd != nil {
+					return r, mwCmd
+				}
+
+				input = newInput
+			}
+
 			if input != "" {
 				result := r.handler.Eval(input)
 
 				// Ensure extra empty line
 				if result != "" && !strings.HasSuffix(result, "\n") {
 					result += "\n"
-				}
-
-				// Add to output with current prompt
-				r.output = append(r.output, r.handler.Prompt(r.promptCount)+input)
-				if result != "" {
-					r.output = append(r.output, result)
 				}
 
 				// Add to history
@@ -83,6 +113,11 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.textInput.SetValue("")
 				r.textInput.Prompt = r.handler.Prompt(r.promptCount)
 				r.historyIdx = -1
+
+				// Use tea.Println to display the result, we also need to patch the result with the
+				// prompt to give the illusion of interactivity.
+				result = r.handler.Prompt(r.promptCount-1) + input + "\n" + result
+				return r, tea.Println(result)
 			}
 			return r, nil
 
@@ -137,22 +172,7 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (r *Repl) View() string {
-	if r.quitting {
-		return "Goodbye!\n"
-	}
-
 	var view strings.Builder
-
-	// Show recent output (last 20 lines to avoid infinite scroll)
-	outputStart := 0
-	if len(r.output) > 20 {
-		outputStart = len(r.output) - 20
-	}
-
-	for i := outputStart; i < len(r.output); i++ {
-		view.WriteString(r.output[i])
-		view.WriteString("\n")
-	}
 
 	// Show current input
 	view.WriteString(r.textInput.View())
