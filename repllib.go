@@ -1,7 +1,6 @@
 package repllib
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -17,145 +16,14 @@ var (
 	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // Gray
 )
 
-// Core interfaces
-type Handler interface {
-	Prompt(count int) string
-	Eval(buffer string) string
-	Tab(buffer string) string
-}
-
-// EvalResult allows handlers to return both output and errors
-type EvalResult struct {
-	Output string
-	Error  error
-}
-
-// EvalResultHandler is an alternative handler interface that supports error reporting
-type EvalResultHandler interface {
-	Prompt(count int) string
-	EvalWithResult(buffer string) EvalResult
-	Tab(buffer string) string
-}
-
-type ReplHistory interface {
-	Push(buffer string) error
-	GetAll() ([]string, error)
-}
-
 // EvalFunc is the required evaluation function
 type EvalFunc func(buffer string) string
-
-// EvalResultFunc is an alternative evaluation function that can return errors
-type EvalResultFunc func(buffer string) EvalResult
 
 // Optional function types for builder
 type (
 	PromptFunc func(count int) string
 	TabFunc    func(buffer string) string
 )
-
-// Default implementations
-type defaultHandler struct {
-	evalFunc   EvalFunc
-	promptFunc PromptFunc
-	tabFunc    TabFunc
-}
-
-func (h *defaultHandler) Prompt(count int) string {
-	if h.promptFunc != nil {
-		return h.promptFunc(count)
-	}
-	return fmt.Sprintf("In [%d]: ", count) // IPython-style default prompt
-}
-
-func (h *defaultHandler) Eval(buffer string) string {
-	return h.evalFunc(buffer)
-}
-
-func (h *defaultHandler) Tab(buffer string) string {
-	if h.tabFunc != nil {
-		return h.tabFunc(buffer)
-	}
-	return buffer // default: no completion
-}
-
-// Simple in-memory history implementation
-type memoryHistory struct {
-	commands []string
-}
-
-func (h *memoryHistory) Push(buffer string) error {
-	h.commands = append(h.commands, buffer)
-	return nil
-}
-
-func (h *memoryHistory) GetAll() ([]string, error) {
-	return h.commands, nil
-}
-
-// Builder struct
-type ReplBuilder struct {
-	evalFunc   EvalFunc
-	promptFunc PromptFunc
-	tabFunc    TabFunc
-	history    ReplHistory
-}
-
-// NewRepl creates a new REPL builder - requires an evaluation function
-func NewRepl(evalFunc EvalFunc) *ReplBuilder {
-	history := &memoryHistory{}
-	return &ReplBuilder{
-		evalFunc: evalFunc,
-		history:  history,
-		promptFunc: func(count int) string {
-			return promptStyle.Render(fmt.Sprintf("In [%d]: ", count))
-		},
-		tabFunc: func(buffer string) string {
-			// Simple tab completion
-			commands, err := history.GetAll()
-			if err != nil {
-				return ""
-			}
-
-			for _, cmd := range commands {
-				if strings.HasPrefix(cmd, buffer) {
-					return cmd
-				}
-			}
-			return buffer
-		},
-	}
-}
-
-// Builder methods
-func (b *ReplBuilder) WithPrompt(promptFunc PromptFunc) *ReplBuilder {
-	b.promptFunc = promptFunc
-	return b
-}
-
-func (b *ReplBuilder) WithTab(tabFunc TabFunc) *ReplBuilder {
-	b.tabFunc = tabFunc
-	return b
-}
-
-func (b *ReplBuilder) WithHistory(history ReplHistory) *ReplBuilder {
-	b.history = history
-	return b
-}
-
-// Build creates the final Repl
-func (b *ReplBuilder) Build() *Repl {
-	handler := &defaultHandler{
-		evalFunc:   b.evalFunc,
-		promptFunc: b.promptFunc,
-		tabFunc:    b.tabFunc,
-	}
-
-	return &Repl{
-		handler: handler,
-		history: b.history,
-	}
-}
 
 // Main Repl struct that implements tea.Model
 type Repl struct {
@@ -258,6 +126,8 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.textInput.CursorEnd()
 			}
 			return r, nil
+		default:
+			// Do Nothing
 		}
 	}
 
@@ -295,8 +165,8 @@ func (r *Repl) View() string {
 }
 
 // Loop starts the REPL - this is the main entry point
-func (r *Repl) Loop() error {
-	p := tea.NewProgram(r)
+func (r *Repl) Run(opts ...tea.ProgramOption) error {
+	p := tea.NewProgram(r, opts...)
 	_, err := p.Run()
 	return err
 }

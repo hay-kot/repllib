@@ -11,7 +11,7 @@ import (
 
 func main() {
 	// Create a simple echo REPL
-	repl := repllib.NewRepl(func(input string) string {
+	repl := repllib.New(func(input string) string {
 		trimmed := strings.TrimSpace(input)
 
 		// Handle empty input
@@ -49,7 +49,7 @@ func main() {
 	fmt.Println("Type 'help' for available commands, or Ctrl+C to quit.")
 	fmt.Println()
 
-	if err := repl.Loop(); err != nil {
+	if err := repl.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
