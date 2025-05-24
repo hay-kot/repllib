@@ -1,34 +1,3 @@
-# repllib
-
-A Bubble Tea library for quickly building REPL-style interactive CLIs in Go. Create powerful command-line interfaces with history, tab completion, and custom evaluation logic.
-
-[![Go Reference](https://pkg.go.dev/badge/github.com/hay-kot/repllib.svg)](https://pkg.go.dev/github.com/hay-kot/repllib)
-
-## Install
-
-```bash
-go get github.com/hay-kot/repllib
-```
-
-```go
-import "github.com/hay-kot/repllib"
-```
-
-## Features
-
-- **Interactive REPL Interface** - Built on Bubble Tea for smooth terminal interactions
-- **Command History** - Navigate through previous commands with ↑/↓ arrow keys
-- **Tab Completion** - Extensible tab completion system
-- **Custom Evaluation** - Plug in your own command evaluation logic
-- **Error Handling** - Built-in error styling and display
-- **Flexible Builder Pattern** - Customize prompts, completion, and history storage
-- **Memory History** - Built-in in-memory history with option to provide custom storage
-
-## Quick Start
-
-Here's a simple echo server that demonstrates the basic functionality:
-
-```go
 package main
 
 import (
@@ -84,4 +53,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-```
