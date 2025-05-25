@@ -227,7 +227,7 @@ func (h *HTTPClient) makeRequest(method string, parts []string) string {
 	if err != nil {
 		return fmt.Sprintf("Request failed: %s", err)
 	}
-	resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)
