@@ -7,11 +7,10 @@
 package repllib
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 type SuggestionType int
@@ -37,70 +36,70 @@ func NewSuggestion(value string, suggType SuggestionType, comment string) Sugges
 	}
 }
 
-// SuggestionProvider interface for getting suggestions
-type SuggestionProvider interface {
+// Suggester interface for getting suggestions
+type Suggester interface {
 	GetSuggestions(input string, cursorPos int) ([]Suggestion, string, error)
 }
 
 // Default suggestion provider that uses simple prefix matching
-type defaultSuggestionProvider struct {
+type SuggestionProvider struct {
 	optMatchAny bool
 	functions   map[string]string
 	identifiers map[string]string
 	keywords    []string
-	delegate    map[string]SuggestionProvider
+	delegate    map[string]Suggester
 }
 
-func NewDefaultSuggestionProvider() *defaultSuggestionProvider {
-	return &defaultSuggestionProvider{
+func NewSuggestionProvider() *SuggestionProvider {
+	return &SuggestionProvider{
 		functions:   make(map[string]string),
 		identifiers: make(map[string]string),
 		keywords:    []string{},
-		delegate:    make(map[string]SuggestionProvider),
+		delegate:    make(map[string]Suggester),
 	}
 }
 
-func (p *defaultSuggestionProvider) SetMatchAny(match bool) *defaultSuggestionProvider {
+func (p *SuggestionProvider) SetMatchAny(match bool) *SuggestionProvider {
 	p.optMatchAny = match
 	return p
 }
 
-func (p *defaultSuggestionProvider) AddDelegate(name string, provider SuggestionProvider) *defaultSuggestionProvider {
+func (p *SuggestionProvider) AddDelegate(name string, provider Suggester) *SuggestionProvider {
 	p.delegate[name] = provider
 	return p
 }
 
-func (p *defaultSuggestionProvider) RemoveDelegate(name string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) RemoveDelegate(name string) *SuggestionProvider {
 	delete(p.delegate, name)
 	return p
 }
 
-func (p *defaultSuggestionProvider) AddFunction(name, description string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) AddFunction(name, description string) *SuggestionProvider {
 	p.functions[name] = description
 	return p
 }
 
-func (p *defaultSuggestionProvider) RemoveFunction(name string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) RemoveFunction(name string) *SuggestionProvider {
 	delete(p.functions, name)
 	return p
 }
 
-func (p *defaultSuggestionProvider) AddIdentifier(name, value string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) AddIdentifier(name, value string) *SuggestionProvider {
 	p.identifiers[name] = value
 	return p
 }
 
-func (p *defaultSuggestionProvider) RemoveIdentifier(name string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) RemoveIdentifier(name string) *SuggestionProvider {
 	delete(p.identifiers, name)
 	return p
 }
 
-func (p *defaultSuggestionProvider) AddKeyword(keyword string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) AddKeyword(keyword string) *SuggestionProvider {
 	p.keywords = append(p.keywords, keyword)
 	return p
 }
 
-func (p *defaultSuggestionProvider) RemoveKeyword(keyword string) *defaultSuggestionProvider {
+func (p *SuggestionProvider) RemoveKeyword(keyword string) *SuggestionProvider {
 	for i, k := range p.keywords {
 		if k == keyword {
 			p.keywords = slices.Delete(p.keywords, i, i+1)
@@ -110,7 +109,7 @@ func (p *defaultSuggestionProvider) RemoveKeyword(keyword string) *defaultSugges
 	return p
 }
 
-func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) ([]Suggestion, string, error) {
+func (p *SuggestionProvider) GetSuggestions(input string, cursorPos int) ([]Suggestion, string, error) {
 	for name, provider := range p.delegate {
 		if strings.HasPrefix(input, name+" ") {
 			trimmed := strings.TrimSpace(strings.TrimPrefix(input, name+" "))
@@ -124,19 +123,33 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 
 	if len(word) == 0 {
 		if p.optMatchAny {
-			suggestions := []Suggestion{}
-
+			funcSugs := []Suggestion{}
 			for name, desc := range p.functions {
-				suggestions = append(suggestions, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
+				funcSugs = append(funcSugs, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
 			}
 
+			slices.SortFunc(funcSugs, func(a, b Suggestion) int {
+				return cmp.Compare(a.Value, b.Value)
+			})
+
+			idSugs := []Suggestion{}
 			for name, value := range p.identifiers {
-				suggestions = append(suggestions, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
+				idSugs = append(idSugs, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
 			}
 
+			slices.SortFunc(idSugs, func(a, b Suggestion) int {
+				return cmp.Compare(a.Value, b.Value)
+			})
+
+			kwSugs := []Suggestion{}
 			for _, keyword := range p.keywords {
-				suggestions = append(suggestions, NewSuggestion(keyword, SuggestionKeyword, ""))
+				kwSugs = append(kwSugs, NewSuggestion(keyword, SuggestionKeyword, ""))
 			}
+
+			suggestions := []Suggestion{}
+			suggestions = slices.Concat(suggestions, funcSugs)
+			suggestions = slices.Concat(suggestions, idSugs)
+			suggestions = slices.Concat(suggestions, kwSugs)
 
 			return atMostN(suggestions, 8), "", nil
 		}
@@ -145,28 +158,39 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 
 	var suggestions []Suggestion
 
-	// Match functions
 	for name, desc := range p.functions {
-		if prefixMatch(name, word) && !strings.EqualFold(name, word) {
-			suggestions = append(suggestions, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
+		sugs := []Suggestion{}
+		if autocompleteMatch(name, word) {
+			sugs = append(sugs, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
 		}
+
+		slices.SortFunc(sugs, func(a, b Suggestion) int {
+			return cmp.Compare(a.Value, b.Value)
+		})
 	}
 
-	// Match identifiers
 	for name, value := range p.identifiers {
-		if prefixMatch(name, word) && !strings.EqualFold(name, word) {
-			suggestions = append(suggestions, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
+		sugs := []Suggestion{}
+		if autocompleteMatch(name, word) {
+			sugs = append(sugs, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
 		}
+
+		slices.SortFunc(sugs, func(a, b Suggestion) int {
+			return cmp.Compare(a.Value, b.Value)
+		})
 	}
 
-	// Match keywords
 	for _, keyword := range p.keywords {
-		if prefixMatch(keyword, word) && !strings.EqualFold(keyword, word) {
-			suggestions = append(suggestions, NewSuggestion(keyword, SuggestionKeyword, ""))
+		sugs := []Suggestion{}
+		if autocompleteMatch(keyword, word) {
+			sugs = append(sugs, NewSuggestion(keyword, SuggestionKeyword, ""))
 		}
+
+		slices.SortFunc(sugs, func(a, b Suggestion) int {
+			return cmp.Compare(a.Value, b.Value)
+		})
 	}
 
-	// Sort suggestions by type priority (functions first, then identifiers, then keywords)
 	sort.Slice(suggestions, func(i, j int) bool {
 		return suggestions[i].Type < suggestions[j].Type
 	})
@@ -190,20 +214,6 @@ func applySuggestion(input, textToReplace, suggestion string, cursorPos int) (st
 
 	return newInput, newCursorPos
 }
-
-// Styling for suggestions
-var (
-	styleSuggestions = map[SuggestionType]lipgloss.Style{
-		SuggestionFunction:   lipgloss.NewStyle().Foreground(lipgloss.Color("39")),  // Blue
-		SuggestionIdentifier: lipgloss.NewStyle().Foreground(lipgloss.Color("220")), // Yellow
-		SuggestionProperty:   lipgloss.NewStyle().Foreground(lipgloss.Color("14")),  // Cyan
-		SuggestionKeyword:    lipgloss.NewStyle().Foreground(lipgloss.Color("13")),  // Magenta
-	}
-	styleSelectedSuggestion = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Underline(true) // Bright green
-	styleSelectedPrefix     = styleSelectedSuggestion.Underline(false)
-	styleSuggestionBox      = lipgloss.NewStyle().PaddingLeft(1).PaddingTop(1)
-	styleComment            = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Faint(true) // Gray
-)
 
 func renderSuggestions(suggestions []Suggestion, selectedIndex int) string {
 	if len(suggestions) == 0 {

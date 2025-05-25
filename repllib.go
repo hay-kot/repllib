@@ -50,7 +50,7 @@ type Repl struct {
 	quitting    bool
 
 	// Autocomplete state
-	suggestionProvider SuggestionProvider
+	suggestionProvider Suggester
 	suggestions        []Suggestion
 	selectedSuggestion int
 	textToReplace      string
@@ -197,7 +197,7 @@ func (r *Repl) View() string {
 	if r.isSuggesting {
 		helpText = "↑/↓: navigate • enter: select • esc: cancel"
 	}
-	view.WriteString(helpStyle.Render(helpText))
+	view.WriteString(styleHelp.Render(helpText))
 
 	return view.String()
 }

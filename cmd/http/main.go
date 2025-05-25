@@ -227,7 +227,7 @@ func (h *HTTPClient) makeRequest(method string, parts []string) string {
 	if err != nil {
 		return fmt.Sprintf("Request failed: %s", err)
 	}
-	defer resp.Body.Close()
+	resp.Body.Close() //nolint:errcheck
 
 	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -407,8 +407,8 @@ Examples:
   post /repos --json '{"name":"test","private":true}'`
 }
 
-func createHTTPSuggestionProvider() repllib.SuggestionProvider {
-	return repllib.NewDefaultSuggestionProvider().
+func createHTTPSuggestionProvider() repllib.Suggester {
+	return repllib.NewSuggestionProvider().
 		// HTTP Methods
 		AddFunction("get", "Make GET request").
 		AddFunction("post", "Make POST request").
@@ -434,7 +434,7 @@ func createHTTPSuggestionProvider() repllib.SuggestionProvider {
 		AddFunction("help", "Show help information").
 
 		// Common headers
-		AddDelegate("headers", repllib.NewDefaultSuggestionProvider().
+		AddDelegate("headers", repllib.NewSuggestionProvider().
 			SetMatchAny(true).
 			AddIdentifier("Authorization", "Authentication header").
 			AddIdentifier("Content-Type", "Content type header").

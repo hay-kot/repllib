@@ -2,7 +2,6 @@
 package repllib
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -12,18 +11,16 @@ type ReplBuilder struct {
 	promptFunc         PromptFunc
 	tabFunc            TabFunc
 	history            ReplHistory
-	suggestionProvider SuggestionProvider
+	suggestionProvider Suggester
 }
 
 // New creates a new REPL builder - requires an evaluation function
 func New(evalFunc EvalFunc) *ReplBuilder {
 	history := &memoryHistory{}
 	return &ReplBuilder{
-		evalFunc: evalFunc,
-		history:  history,
-		promptFunc: func(count int) string {
-			return promptStyle.Render(fmt.Sprintf("In [%d]: ", count))
-		},
+		evalFunc:   evalFunc,
+		history:    history,
+		promptFunc: PromptIPython(),
 		tabFunc: func(buffer string) string {
 			// Simple tab completion fallback
 			commands, err := history.GetAll()
@@ -73,7 +70,7 @@ func (b *ReplBuilder) WithHistory(history ReplHistory) *ReplBuilder {
 }
 
 // New autocomplete methods
-func (b *ReplBuilder) WithSuggestions(provider SuggestionProvider) *ReplBuilder {
+func (b *ReplBuilder) WithSuggestions(provider Suggester) *ReplBuilder {
 	b.suggestionProvider = provider
 	return b
 }

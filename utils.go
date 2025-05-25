@@ -17,14 +17,18 @@ func trimString(s string, maxLen int) string {
 	return s[:maxLen]
 }
 
-// prefixMatch checks if the name starts with the given word, case-insensitively.
+// autocompleteMatch checks if the name starts with the given word, case-insensitively.
 //
 // Examples:
 //
-//	//   prefixMatch("HelloWorld", "hello") // true
-//	//   prefixMatch("HelloWorld", "world") // false
-func prefixMatch(name, word string) bool {
-	return strings.HasPrefix(strings.ToLower(name), strings.ToLower(word))
+//	//   autocompleteMatch("HelloWorld", "hello") // true
+//	//   autocompleteMatch("HelloWorld", "world") // false
+//	//   autocompleteMatch("HelloWorld", "HelloWorld") // false
+func autocompleteMatch(name, word string) bool {
+	lowerName := strings.ToLower(name)
+	lowerWord := strings.ToLower(word)
+
+	return strings.HasPrefix(lowerName, lowerWord) && !strings.EqualFold(lowerName, lowerWord)
 }
 
 // atMostN returns a slice containing at most n elements from vals.
