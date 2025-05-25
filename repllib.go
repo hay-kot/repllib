@@ -75,8 +75,7 @@ func (r *Repl) Init() tea.Cmd {
 func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		// Handle autocomplete navigation first
 		if r.isSuggesting {
 			switch msg.Type {

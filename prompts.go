@@ -6,8 +6,8 @@ import "fmt"
 //
 // Example:
 //
-// 	// In [1]: ...
-// 	// In [2]: ...
+//	// In [1]: ...
+//	// In [2]: ...
 func PromptIPython() PromptFunc {
 	return func(count int) string {
 		return stylePrompt.Render(fmt.Sprintf("In [%d]: ", count))
@@ -18,7 +18,7 @@ func PromptIPython() PromptFunc {
 //
 // Example:
 //
-// 	// >
+//	// >
 func PromptCarrot() PromptFunc {
 	return func(count int) string {
 		return stylePrompt.Render("> ")
