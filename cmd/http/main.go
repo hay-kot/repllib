@@ -40,7 +40,9 @@ func main() {
 	repl := repllib.New(func(input string) string {
 		return httpClient.handleCommand(input)
 	}).
-		WithSuggestions(createHTTPSuggestionProvider()).
+		WithSuggestions(
+			createHTTPSuggestionProvider(),
+		).
 		Build()
 
 	fmt.Println("🌐 HTTP Client REPL")
@@ -432,11 +434,14 @@ func createHTTPSuggestionProvider() repllib.SuggestionProvider {
 		AddFunction("help", "Show help information").
 
 		// Common headers
-		AddIdentifier("Authorization", "Authentication header").
-		AddIdentifier("Content-Type", "Content type header").
-		AddIdentifier("Accept", "Accept header").
-		AddIdentifier("User-Agent", "User agent header").
-		AddIdentifier("X-API-Key", "API key header").
+		AddDelegate("headers", repllib.NewDefaultSuggestionProvider().
+			SetMatchAny(true).
+			AddIdentifier("Authorization", "Authentication header").
+			AddIdentifier("Content-Type", "Content type header").
+			AddIdentifier("Accept", "Accept header").
+			AddIdentifier("User-Agent", "User agent header").
+			AddIdentifier("X-API-Key", "API key header"),
+		).
 
 		// HTTP status codes
 		AddIdentifier("200", "OK").

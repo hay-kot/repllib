@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -45,9 +44,11 @@ type SuggestionProvider interface {
 
 // Default suggestion provider that uses simple prefix matching
 type defaultSuggestionProvider struct {
-	functions   map[string]string // function name -> description
-	identifiers map[string]string // identifier name -> value
+	optMatchAny bool
+	functions   map[string]string
+	identifiers map[string]string
 	keywords    []string
+	delegate    map[string]SuggestionProvider
 }
 
 func NewDefaultSuggestionProvider() *defaultSuggestionProvider {
@@ -55,7 +56,23 @@ func NewDefaultSuggestionProvider() *defaultSuggestionProvider {
 		functions:   make(map[string]string),
 		identifiers: make(map[string]string),
 		keywords:    []string{},
+		delegate:    make(map[string]SuggestionProvider),
 	}
+}
+
+func (p *defaultSuggestionProvider) SetMatchAny(match bool) *defaultSuggestionProvider {
+	p.optMatchAny = match
+	return p
+}
+
+func (p *defaultSuggestionProvider) AddDelegate(name string, provider SuggestionProvider) *defaultSuggestionProvider {
+	p.delegate[name] = provider
+	return p
+}
+
+func (p *defaultSuggestionProvider) RemoveDelegate(name string) *defaultSuggestionProvider {
+	delete(p.delegate, name)
+	return p
 }
 
 func (p *defaultSuggestionProvider) AddFunction(name, description string) *defaultSuggestionProvider {
@@ -94,11 +111,35 @@ func (p *defaultSuggestionProvider) RemoveKeyword(keyword string) *defaultSugges
 }
 
 func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) ([]Suggestion, string, error) {
+	for name, provider := range p.delegate {
+		if strings.HasPrefix(input, name+" ") {
+			trimmed := strings.TrimSpace(strings.TrimPrefix(input, name+" "))
+			return provider.GetSuggestions(trimmed, cursorPos)
+		}
+	}
+
 	// Find the word at cursor position
 	wordStart, wordEnd := findWordBounds(input, cursorPos)
 	word := input[wordStart:wordEnd]
 
 	if len(word) == 0 {
+		if p.optMatchAny {
+			suggestions := []Suggestion{}
+
+			for name, desc := range p.functions {
+				suggestions = append(suggestions, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
+			}
+
+			for name, value := range p.identifiers {
+				suggestions = append(suggestions, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
+			}
+
+			for _, keyword := range p.keywords {
+				suggestions = append(suggestions, NewSuggestion(keyword, SuggestionKeyword, ""))
+			}
+
+			return atMostN(suggestions, 8), "", nil
+		}
 		return []Suggestion{}, "", nil
 	}
 
@@ -106,29 +147,21 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 
 	// Match functions
 	for name, desc := range p.functions {
-		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(word)) {
-			comment := desc
-			if len(comment) > 50 {
-				comment = comment[:50] + "..."
-			}
-			suggestions = append(suggestions, NewSuggestion(name, SuggestionFunction, comment))
+		if prefixMatch(name, word) {
+			suggestions = append(suggestions, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
 		}
 	}
 
 	// Match identifiers
 	for name, value := range p.identifiers {
-		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(word)) {
-			comment := value
-			if len(comment) > 50 {
-				comment = comment[:50] + "..."
-			}
-			suggestions = append(suggestions, NewSuggestion(name, SuggestionIdentifier, comment))
+		if prefixMatch(name, word) {
+			suggestions = append(suggestions, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
 		}
 	}
 
 	// Match keywords
 	for _, keyword := range p.keywords {
-		if strings.HasPrefix(strings.ToLower(keyword), strings.ToLower(word)) {
+		if prefixMatch(keyword, word) {
 			suggestions = append(suggestions, NewSuggestion(keyword, SuggestionKeyword, ""))
 		}
 	}
@@ -138,37 +171,7 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 		return suggestions[i].Type < suggestions[j].Type
 	})
 
-	// Take atmost 8 suggestions
-	if len(suggestions) > 8 {
-		suggestions = suggestions[:8]
-	}
-
-	return suggestions, word, nil
-}
-
-// Find word boundaries around cursor position
-func findWordBounds(input string, cursorPos int) (start, end int) {
-	if cursorPos > len(input) {
-		cursorPos = len(input)
-	}
-
-	// Find start of word (go backwards from cursor)
-	start = cursorPos
-	for start > 0 && isWordChar(rune(input[start-1])) {
-		start--
-	}
-
-	// Find end of word (go forwards from cursor)
-	end = cursorPos
-	for end < len(input) && isWordChar(rune(input[end])) {
-		end++
-	}
-
-	return start, end
-}
-
-func isWordChar(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+	return atMostN(suggestions, 8), word, nil
 }
 
 // Apply suggestion to input string
