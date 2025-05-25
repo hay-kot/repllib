@@ -7,6 +7,7 @@
 package repllib
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -62,13 +63,33 @@ func (p *defaultSuggestionProvider) AddFunction(name, description string) *defau
 	return p
 }
 
+func (p *defaultSuggestionProvider) RemoveFunction(name string) *defaultSuggestionProvider {
+	delete(p.functions, name)
+	return p
+}
+
 func (p *defaultSuggestionProvider) AddIdentifier(name, value string) *defaultSuggestionProvider {
 	p.identifiers[name] = value
 	return p
 }
 
+func (p *defaultSuggestionProvider) RemoveIdentifier(name string) *defaultSuggestionProvider {
+	delete(p.identifiers, name)
+	return p
+}
+
 func (p *defaultSuggestionProvider) AddKeyword(keyword string) *defaultSuggestionProvider {
 	p.keywords = append(p.keywords, keyword)
+	return p
+}
+
+func (p *defaultSuggestionProvider) RemoveKeyword(keyword string) *defaultSuggestionProvider {
+	for i, k := range p.keywords {
+		if k == keyword {
+			p.keywords = slices.Delete(p.keywords, i, i+1)
+			break
+		}
+	}
 	return p
 }
 
@@ -116,6 +137,11 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 	sort.Slice(suggestions, func(i, j int) bool {
 		return suggestions[i].Type < suggestions[j].Type
 	})
+
+	// Take atmost 8 suggestions
+	if len(suggestions) > 8 {
+		suggestions = suggestions[:8]
+	}
 
 	return suggestions, word, nil
 }
