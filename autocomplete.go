@@ -147,21 +147,21 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 
 	// Match functions
 	for name, desc := range p.functions {
-		if prefixMatch(name, word) {
+		if prefixMatch(name, word) && !strings.EqualFold(name, word) {
 			suggestions = append(suggestions, NewSuggestion(name, SuggestionFunction, trimString(desc, 50)))
 		}
 	}
 
 	// Match identifiers
 	for name, value := range p.identifiers {
-		if prefixMatch(name, word) {
+		if prefixMatch(name, word) && !strings.EqualFold(name, word) {
 			suggestions = append(suggestions, NewSuggestion(name, SuggestionIdentifier, trimString(value, 50)))
 		}
 	}
 
 	// Match keywords
 	for _, keyword := range p.keywords {
-		if prefixMatch(keyword, word) {
+		if prefixMatch(keyword, word) && !strings.EqualFold(keyword, word) {
 			suggestions = append(suggestions, NewSuggestion(keyword, SuggestionKeyword, ""))
 		}
 	}
@@ -177,11 +177,14 @@ func (p *defaultSuggestionProvider) GetSuggestions(input string, cursorPos int) 
 // Apply suggestion to input string
 func applySuggestion(input, textToReplace, suggestion string, cursorPos int) (string, int) {
 	// Find where the word to replace starts
-	wordStart, _ := findWordBounds(input, cursorPos)
+	wordStart, wordEnd := findWordBounds(input, cursorPos)
+
+	// Calculate the actual end position for replacement
+	replaceEnd := max(wordEnd, min(wordStart+len(textToReplace), len(input)))
 
 	// Replace the word
 	head := input[:wordStart]
-	tail := input[wordStart+len(textToReplace):]
+	tail := input[replaceEnd:]
 	newInput := head + suggestion + tail
 	newCursorPos := wordStart + len(suggestion)
 
