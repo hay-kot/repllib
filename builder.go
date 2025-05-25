@@ -1,3 +1,4 @@
+// builder.go - Enhanced version
 package repllib
 
 import (
@@ -7,10 +8,11 @@ import (
 
 // Builder struct
 type ReplBuilder struct {
-	evalFunc   EvalFunc
-	promptFunc PromptFunc
-	tabFunc    TabFunc
-	history    ReplHistory
+	evalFunc           EvalFunc
+	promptFunc         PromptFunc
+	tabFunc            TabFunc
+	history            ReplHistory
+	suggestionProvider SuggestionProvider
 }
 
 // New creates a new REPL builder - requires an evaluation function
@@ -23,10 +25,10 @@ func New(evalFunc EvalFunc) *ReplBuilder {
 			return promptStyle.Render(fmt.Sprintf("In [%d]: ", count))
 		},
 		tabFunc: func(buffer string) string {
-			// Simple tab completion
+			// Simple tab completion fallback
 			commands, err := history.GetAll()
 			if err != nil {
-				return ""
+				return buffer
 			}
 
 			for _, cmd := range commands {
@@ -48,8 +50,9 @@ func (b *ReplBuilder) Build() *Repl {
 	}
 
 	return &Repl{
-		handler: handler,
-		history: b.history,
+		handler:            handler,
+		history:            b.history,
+		suggestionProvider: b.suggestionProvider,
 	}
 }
 
@@ -66,5 +69,11 @@ func (b *ReplBuilder) WithTab(tabFunc TabFunc) *ReplBuilder {
 
 func (b *ReplBuilder) WithHistory(history ReplHistory) *ReplBuilder {
 	b.history = history
+	return b
+}
+
+// New autocomplete methods
+func (b *ReplBuilder) WithSuggestions(provider SuggestionProvider) *ReplBuilder {
+	b.suggestionProvider = provider
 	return b
 }

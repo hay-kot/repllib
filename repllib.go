@@ -1,3 +1,5 @@
+// Package repllib provides a simple REPL (Read-Eval-Print Loop) implementation with built in
+// features for evaluation, history, and autocomplete to simplify building REPLs
 package repllib
 
 import (
@@ -5,25 +7,12 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-// Styling
-var (
-	Error = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render // Red
-
-	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))   // Green
-	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // Gray
 )
 
 // EvalFunc is the required evaluation function
 type EvalFunc func(buffer string) string
 
 // EvalMiddleware is an optional middleware function that can modify the evaluation process.
-// or return an actionable message with tea.Cmd.
-//
-// When tea.Cmd is not nil, the REPL will not print the result directly and instead delegate
-// the output to the command.
 type EvalMiddleware func(buffer string) (string, tea.Cmd)
 
 func WithExitMiddleware() EvalMiddleware {
@@ -59,6 +48,14 @@ type Repl struct {
 	historyIdx  int
 	promptCount int // Track the prompt number like IPython
 	quitting    bool
+
+	// Autocomplete state
+	suggestionProvider SuggestionProvider
+	suggestions        []Suggestion
+	selectedSuggestion int
+	textToReplace      string
+	dirtyInput         string // Input before showing suggestions
+	isSuggesting       bool
 }
 
 // Bubble Tea Model implementation
@@ -71,6 +68,7 @@ func (r *Repl) Init() tea.Cmd {
 	r.textInput.Width = 80
 
 	r.historyIdx = -1
+	r.selectedSuggestion = -1
 	return textinput.Blink
 }
 
@@ -79,6 +77,23 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle autocomplete navigation first
+		if r.isSuggesting {
+			switch msg.Type {
+			case tea.KeyEnter:
+				return r.selectSuggestion(), nil
+			case tea.KeyTab, tea.KeyDown:
+				return r.navigateSuggestions(1), nil
+			case tea.KeyUp:
+				return r.navigateSuggestions(-1), nil
+			case tea.KeyEsc:
+				return r.exitSuggestions(), nil
+			default:
+				// Any other key exits suggestions and processes normally
+				r = r.exitSuggestions()
+			}
+		}
+
 		switch msg.Type {
 		case tea.KeyEnter:
 			input := strings.TrimSpace(r.textInput.Value())
@@ -114,8 +129,7 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Add to history
 				_ = r.history.Push(input) // TO-DO: log error
 
-				// Use tea.Println to display the result, we also need to patch the result with the
-				// prompt to give the illusion of interactivity.
+				// Use tea.Println to display the result
 				result = r.handler.Prompt(r.promptCount-1) + input + "\n" + result
 				return r, tea.Println(result)
 			}
@@ -153,14 +167,8 @@ func (r *Repl) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r, nil
 
 		case tea.KeyTab:
-			// Tab completion
-			current := r.textInput.Value()
-			completed := r.handler.Tab(current)
-			if completed != current {
-				r.textInput.SetValue(completed)
-				r.textInput.CursorEnd()
-			}
-			return r, nil
+			// Tab completion - trigger autocomplete
+			return r.triggerAutocomplete(), nil
 		default:
 			// Do Nothing
 		}
@@ -177,11 +185,111 @@ func (r *Repl) View() string {
 	// Show current input
 	view.WriteString(r.textInput.View())
 
+	// Show autocomplete suggestions if active
+	if r.isSuggesting {
+		view.WriteString("\n")
+		view.WriteString(renderSuggestions(r.suggestions, r.selectedSuggestion))
+	}
+
 	// Help text
 	view.WriteString("\n\n")
-	view.WriteString(helpStyle.Render("↑/↓: history • tab: complete • 'exit': quit"))
+	helpText := "↑/↓: history • tab: complete • 'exit': quit"
+	if r.isSuggesting {
+		helpText = "↑/↓: navigate • enter: select • esc: cancel"
+	}
+	view.WriteString(helpStyle.Render(helpText))
 
 	return view.String()
+}
+
+// Autocomplete methods
+func (r *Repl) triggerAutocomplete() *Repl {
+	if r.suggestionProvider == nil {
+		// Fall back to legacy tab completion
+		current := r.textInput.Value()
+		completed := r.handler.Tab(current)
+		if completed != current {
+			r.textInput.SetValue(completed)
+			r.textInput.CursorEnd()
+		}
+		return r
+	}
+
+	input := r.textInput.Value()
+	cursorPos := r.textInput.Position()
+
+	suggestions, textToReplace, err := r.suggestionProvider.GetSuggestions(input, cursorPos)
+	if err != nil || len(suggestions) == 0 {
+		return r
+	}
+
+	// If only one suggestion, apply it immediately
+	if len(suggestions) == 1 {
+		newInput, newCursorPos := applySuggestion(input, textToReplace, suggestions[0].Value, cursorPos)
+		r.textInput.SetValue(newInput)
+		r.textInput.SetCursor(newCursorPos)
+		return r
+	}
+
+	// Multiple suggestions - show suggestion box
+	r.dirtyInput = input
+	r.suggestions = suggestions
+	r.textToReplace = textToReplace
+	r.selectedSuggestion = 0
+	r.isSuggesting = true
+
+	// Apply first suggestion as preview
+	newInput, newCursorPos := applySuggestion(input, textToReplace, suggestions[0].Value, cursorPos)
+	r.textInput.SetValue(newInput)
+	r.textInput.SetCursor(newCursorPos)
+
+	return r
+}
+
+func (r *Repl) navigateSuggestions(direction int) *Repl {
+	if !r.isSuggesting || len(r.suggestions) == 0 {
+		return r
+	}
+
+	r.selectedSuggestion += direction
+	if r.selectedSuggestion < 0 {
+		r.selectedSuggestion = len(r.suggestions) - 1
+	} else if r.selectedSuggestion >= len(r.suggestions) {
+		r.selectedSuggestion = 0
+	}
+
+	// Apply the selected suggestion as preview
+	cursorPos := r.textInput.Position()
+	newInput, newCursorPos := applySuggestion(r.dirtyInput, r.textToReplace, r.suggestions[r.selectedSuggestion].Value, cursorPos)
+	r.textInput.SetValue(newInput)
+	r.textInput.SetCursor(newCursorPos)
+
+	return r
+}
+
+func (r *Repl) selectSuggestion() *Repl {
+	r.isSuggesting = false
+	r.suggestions = nil
+	r.selectedSuggestion = -1
+	r.dirtyInput = ""
+	r.textToReplace = ""
+	r.textInput.CursorEnd()
+	return r
+}
+
+func (r *Repl) exitSuggestions() *Repl {
+	if r.isSuggesting {
+		// Restore original input
+		r.textInput.SetValue(r.dirtyInput)
+		r.textInput.CursorEnd()
+	}
+
+	r.isSuggesting = false
+	r.suggestions = nil
+	r.selectedSuggestion = -1
+	r.dirtyInput = ""
+	r.textToReplace = ""
+	return r
 }
 
 // Loop starts the REPL - this is the main entry point
